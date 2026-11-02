@@ -2,12 +2,13 @@
 sunset sunrise dx planner optimised for the low bands
 
 <p align="center">
-  <img src="tnx_rda.png" alt="Main screen" width="600"/>
+  <img src="sunrise.png" alt="Main screen" width="600"/>
 </p>
 
 <p align="center">
-  <img src="rda_novi.png" alt="Main screen" width="600"/>
-</p>
+  <img src="sun_map2.png" alt="Map" width="600"/>
+</p
+  
 # 9A5CW Hybrid DX Radar & Propagation Planner (V.4.3 Master Edition)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
