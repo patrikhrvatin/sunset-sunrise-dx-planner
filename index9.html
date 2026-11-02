@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+    <meta charset="UTF-8">
+    <title>9A5CW Hybrid Radar V.4.3 (Master Edition) - 73 de 9A5CW</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Leaflet Geodesic -->
+    <script src="https://cdn.jsdelivr.net/npm/leaflet.geodesic@2.7.2/dist/leaflet.geodesic.umd.min.js"></script>
+    <!-- Leaflet Terminator za Greyline -->
+    <script src="https://unpkg.com/@joergdietrich/leaflet.terminator"></script>
+    <style>
+        /* Minimalistički i čist stil za Grid oznake */
+.grid-label {
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: bold;
+    font-family: 'Consolas', monospace;
+    pointer-events: none;
+    text-align: center;
+    line-height: 1;
+    /* Jaka crna sjena za kontrast bez ružne tamne pozadine */
+    text-shadow: 
+        -1px -1px 0 #000,
+         1px -1px 0 #000,
+        -1px  1px 0 #000,
+         1px  1px 0 #000,
+         0px  0px 3px #000;
+}
+        body { background-color: #0a0a0a; color: #f3f4f6; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #121212; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden select-none">
+
+    <!-- HEADER -->
+    <header class="bg-[#1a1a1a] px-4 py-3 border-b border-gray-800 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center space-x-4">
+            <!-- Odabir lokacije -->
+            <select id="homeLocSelect" class="bg-[#222] text-white border border-gray-700 px-3 py-1.5 rounded text-sm focus:outline-none focus:border-green-500">
+                <option value="Pazin">Pazin</option>
+                <option value="Osijek">Osijek</option>
+            </select>
+
+            <!-- Zvuk -->
+            <label class="flex items-center space-x-2 text-sm cursor-pointer">
+                <input type="checkbox" id="soundToggle" checked class="rounded bg-[#333] border-gray-600 text-green-500 focus:ring-0">
+                <span>Zvuk</span>
+            </label>
+
+            <!-- Kontinent filteri -->
+            <div id="continentFilters" class="flex items-center space-x-1 bg-[#222] px-3 py-1 rounded border border-gray-700 text-xs">
+                <span class="mr-2 text-gray-400">Kontinenti:</span>
+            </div>
+
+            <!-- Tolerancija klizač -->
+            <div class="flex items-center space-x-2 text-xs">
+                <span class="text-gray-400">Tolerancija (+/- <span id="tolVal">25</span>m):</span>
+                <input type="range" id="tolSlider" min="5" max="60" value="25" class="w-24 accent-green-500 cursor-pointer">
+            </div>
+
+            <!-- FILTER: Samo u toleranciji -->
+            <label class="flex items-center space-x-2 text-sm cursor-pointer ml-2 bg-[#222] px-3 py-1.5 rounded border border-gray-700">
+                <input type="checkbox" id="onlyToleranceToggle" class="rounded bg-[#333] border-gray-600 text-green-500 focus:ring-0">
+                <span class="text-xs text-gray-300">Samo u toleranciji</span>
+            </label>
+        </div>
+
+        <!-- Akcijski gumbi i sat -->
+        <div class="flex items-center space-x-3">
+            <label class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-xs font-bold cursor-pointer transition">
+                Učitaj DXCC.txt
+                <input type="file" id="dxccFileInput" accept=".txt" class="hidden">
+            </label>
+
+            <button id="openMapBtn" class="bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold transition">MAPA & GREYLINE</button>
+            <button id="openLogBtn" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded text-xs font-bold transition">OPEN LOG</button>
+            <button id="resetAlarmBtn" class="bg-red-800 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs font-bold transition">RESET ALARM</button>
+            
+            <div id="utcClock" class="text-green-400 font-bold text-lg tracking-wider px-3 py-1 bg-black/40 rounded border border-gray-800">00:00:00 UTC</div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex p-3 gap-3 overflow-hidden">
+        
+        <!-- LIJEVA TABLICA: Real-time -->
+        <section class="flex-1 flex flex-col bg-[#0f0f0f] border border-gray-800 rounded-lg overflow-hidden">
+            <div id="leftTitle" class="bg-[#141414] px-4 py-2 text-green-400 font-bold text-sm border-b border-gray-800 flex justify-between items-center">
+                <span>Now (Real-time)</span>
+                <span id="leftCount" class="text-xs text-gray-400">0 entiteta</span>
+            </div>
+            <div class="flex-1 overflow-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead class="bg-[#121212] text-gray-400 sticky top-0 border-b border-gray-800">
+                        <tr>
+                            <th class="p-2 text-center w-16">PFX</th>
+                            <th class="p-2">DXCC</th>
+                            <th class="p-2 text-center w-20">MY UTC</th>
+                            <th class="p-2 text-center w-20">DX UTC</th>
+                            <th class="p-2 text-center w-28">DX Window</th>
+                            <th class="p-2 text-center w-24">QTF (SP/LP)</th>
+                            <th class="p-2 text-center w-28">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leftTableBody" class="divide-y divide-gray-900"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- DESNA TABLICA: Snapshot -->
+        <section class="flex-1 flex flex-col bg-[#0f0f0f] border border-gray-800 rounded-lg overflow-hidden">
+            <div id="rightTitle" class="bg-[#141414] px-4 py-2 text-blue-400 font-bold text-sm border-b border-gray-800 flex justify-between items-center">
+                <span>Morning (Snapshot 04:45 UTC)</span>
+                <span id="rightCount" class="text-xs text-gray-400">0 entiteta</span>
+            </div>
+            <div class="flex-1 overflow-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead class="bg-[#121212] text-gray-400 sticky top-0 border-b border-gray-800">
+                        <tr>
+                            <th class="p-2 text-center w-16">PFX</th>
+                            <th class="p-2">DXCC</th>
+                            <th class="p-2 text-center w-20">MY UTC</th>
+                            <th class="p-2 text-center w-20">DX UTC</th>
+                            <th class="p-2 text-center w-28">DX Prozor</th>
+                            <th class="p-2 text-center w-24">QTF (SP/LP)</th>
+                            <th class="p-2 text-center w-28">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rightTableBody" class="divide-y divide-gray-900"></tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL ZA MAPU I OSM FRANCE -->
+    <div id="mapModal" class="fixed inset-0 bg-black/85 hidden items-center justify-center z-50">
+        <div class="bg-[#161616] border border-gray-700 w-11/12 h-[90vh] rounded-lg flex flex-col overflow-hidden shadow-2xl">
+            <div class="bg-[#202020] px-4 py-3 flex justify-between items-center border-b border-gray-700">
+                <h3 class="font-bold text-sm text-emerald-400">DX Map & Real-time Greyline Terminator (OSM France Edition)</h3>
+                <button id="closeMapBtn" class="text-gray-400 hover:text-white font-bold px-2 text-lg">✕</button>
+            </div>
+            <div id="mapContainer" class="flex-1 w-full bg-[#111]"></div>
+            <div class="bg-[#202020] px-4 py-2 flex justify-between items-center border-t border-gray-700 text-xs text-gray-400">
+                <span>Prikaz geodetskih Great-Circle putanja prema aktivnim DX entitetima i OSM France podloga (Automatsko osvježavanje).</span>
+                <button id="refreshMapBtn" class="bg-emerald-800 hover:bg-emerald-700 text-white px-3 py-1 rounded font-bold">Refresh Map</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL ZA PEAK LOG -->
+    <div id="logModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50">
+        <div class="bg-[#161616] border border-gray-700 w-3/4 h-3/4 rounded-lg flex flex-col overflow-hidden shadow-2xl">
+            <div class="bg-[#202020] px-4 py-3 flex justify-between items-center border-b border-gray-700">
+                <h3 class="font-bold text-sm text-gray-200">DX Peak Log (dx_peak_log.txt)</h3>
+                <button id="closeModalBtn" class="text-gray-400 hover:text-white font-bold px-2">✕</button>
+            </div>
+            <div class="p-4 flex-1 overflow-auto">
+                <pre id="logContent" class="text-xs text-green-400 font-mono whitespace-pre-wrap">Nothing found...</pre>
+            </div>
+            <div class="bg-[#202020] px-4 py-2 flex justify-end space-x-2 border-t border-gray-700">
+                <button id="clearLogBtn" class="bg-red-900 hover:bg-red-800 text-white px-3 py-1 rounded text-xs font-bold">Clear log</button>
+                <button id="downloadLogBtn" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded text-xs font-bold">Get TXT</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIKA -->
+    <script>
+        const HOME_STATIONS = [
+            {name: "Pazin", lat: 45.24, lon: 13.94},
+            {name: "Osijek", lat: 45.55, lon: 18.67}
+        ];
+
+        let dxEntities = [
+            {name: "Monaco", cont: "EU", lat: 43.73, lon: 7.40, prefix: "3A"},
+            {name: "Vietnam", cont: "AS", lat: 15.80, lon: 107.90, prefix: "3W"},
+            {name: "Bouvet", cont: "AF", lat: -54.42, lon: 3.38, prefix: "3Y/b"},
+            {name: "Montenegro", cont: "EU", lat: 42.50, lon: 19.28, prefix: "4O"},
+            {name: "Sri Lanka", cont: "AS", lat: 7.60, lon: 80.70, prefix: "4S"},
+            {name: "Revillagigedo", cont: "NA", lat: 18.00, lon: -113.00, prefix: "XF4"}
+        ];
+
+        let currentActiveEntries = [];
+
+        function normalizeLon(lon) {
+            return ((lon + 180) % 360 + 360) % 360 - 180;
+        }
+
+        const continents = ["AF", "AN", "AS", "EU", "NA", "OC", "SA"];
+        let contVars = {};
+        const filterContainer = document.getElementById('continentFilters');
+        
+        continents.forEach(c => {
+            contVars[c] = true;
+            const label = document.createElement('label');
+            label.className = "flex items-center space-x-1 cursor-pointer px-1";
+            label.innerHTML = `<input type="checkbox" checked data-cont="${c}" class="rounded bg-[#333] border-gray-600 text-green-500 focus:ring-0"><span>${c}</span>`;
+            filterContainer.appendChild(label);
+            
+            label.querySelector('input').addEventListener('change', (e) => {
+                contVars[c] = e.target.checked;
+                refreshData();
+            });
+        });
+
+        document.getElementById('homeLocSelect').addEventListener('change', refreshData);
+        document.getElementById('tolSlider').addEventListener('input', (e) => {
+            document.getElementById('tolVal').innerText = e.target.value;
+            refreshData();
+        });
+        document.getElementById('onlyToleranceToggle').addEventListener('change', refreshData);
+
+        document.getElementById('dxccFileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                parseDxccFileContent(e.target.result);
+            };
+            reader.readAsText(file, 'ISO-8859-1');
+        });
+
+        const PRECISION_DATA = {
+            "VK": [
+                {"pfx": "VK1", "n": "Australia (ACT)", "lat": -35.28, "lon": 149.13},
+                {"pfx": "VK2", "n": "Australia (NSW)", "lat": -33.86, "lon": 151.20},
+                {"pfx": "VK3", "n": "Australia (VIC)", "lat": -37.81, "lon": 144.96},
+                {"pfx": "VK4", "n": "Australia (QLD)", "lat": -27.46, "lon": 153.02},
+                {"pfx": "VK5", "n": "Australia (SA)",  "lat": -34.92, "lon": 138.60},
+                {"pfx": "VK6", "n": "Australia (WA)",  "lat": -31.95, "lon": 115.86},
+                {"pfx": "VK7", "n": "Australia (TAS)", "lat": -42.88, "lon": 147.32},
+                {"pfx": "VK8", "n": "Australia (NT)",  "lat": -12.46, "lon": 130.84}
+            ],
+            "JA": [
+                {"pfx": "JA1", "n": "Japan (JA1-Tokyo)", "lat": 35.68, "lon": 139.75},
+                {"pfx": "JA2", "n": "Japan (JA2-Nagoya)", "lat": 35.18, "lon": 136.90},
+                {"pfx": "JA3", "n": "Japan (JA3-Osaka)", "lat": 34.69, "lon": 135.50},
+                {"pfx": "JA4", "n": "Japan (JA4-Hiroshima)", "lat": 34.38, "lon": 132.45},
+                {"pfx": "JA5", "n": "Japan (JA5-Matsuyama)", "lat": 33.83, "lon": 132.76},
+                {"pfx": "JA6", "n": "Japan (JA6-Fukuoka)", "lat": 33.59, "lon": 130.40},
+                {"pfx": "JA7", "n": "Japan (JA7-Sendai)", "lat": 38.26, "lon": 140.87},
+                {"pfx": "JA8", "n": "Japan (JA8-Sapporo)", "lat": 43.06, "lon": 141.35},
+                {"pfx": "JA9", "n": "Japan (JA9-Kanazawa)", "lat": 36.56, "lon": 136.65},
+                {"pfx": "JA0", "n": "Japan (JA0-Nagano)", "lat": 36.64, "lon": 138.19},
+                {"pfx": "JR6", "n": "Japan (Okinawa)", "lat": 26.21, "lon": 127.68}
+            ],
+            "USA": [
+                {"pfx": "W1", "n": "USA (W1-Boston)", "lat": 42.36, "lon": -71.05},
+                {"pfx": "W2", "n": "USA (W2-NY)", "lat": 40.71, "lon": -74.00},
+                {"pfx": "W3", "n": "USA (W3-Philly)", "lat": 39.95, "lon": -75.16},
+                {"pfx": "W4", "n": "USA (W4-Atlanta)", "lat": 33.74, "lon": -84.38},
+                {"pfx": "W5", "n": "USA (W5-Dallas)", "lat": 32.77, "lon": -96.79},
+                {"pfx": "W6", "n": "USA (W6-LA)", "lat": 34.05, "lon": -118.24},
+                {"pfx": "W7", "n": "USA (W7-Seattle)", "lat": 47.60, "lon": -122.33},
+                {"pfx": "W8", "n": "USA (W8-Detroit)", "lat": 42.33, "lon": -83.04},
+                {"pfx": "W9", "n": "USA (W9-Chicago)", "lat": 41.87, "lon": -87.62},
+                {"pfx": "W0", "n": "USA (W0-Denver)", "lat": 39.73, "lon": -104.99}
+            ],
+            "CAN": [
+                {"pfx": "VY0ERC", "n": "Eureka (VY0ERC)", "lat": 80.05, "lon": -86.42},
+                {"pfx": "VY1MB", "n": "Whitehorse (VY1MB)", "lat": 60.72, "lon": -135.06},
+                {"pfx": "VY0MEL", "n": "Rankin Inlet (VY0MEL)", "lat": 63.04, "lon": -92.22},
+                {"pfx": "VO2AC", "n": "Labrador (VO2AC)", "lat": 53.31, "lon": -60.30},
+                {"pfx": "VE1", "n": "Canada (Maritimes)", "lat": 44.65, "lon": -63.57},
+                {"pfx": "VE3", "n": "Canada (Ontario)", "lat": 43.65, "lon": -79.38},
+                {"pfx": "VE7", "n": "Canada (BC)", "lat": 49.28, "lon": -123.12}
+            ],
+            "ZL": [
+                {"pfx": "ZL1", "n": "New Zealand (Upper North Island / Auckland)", "lat": -36.85, "lon": 174.76},
+                {"pfx": "ZL2", "n": "New Zealand (Lower North Island / Wellington)", "lat": -41.29, "lon": 174.78},
+                {"pfx": "ZL3", "n": "New Zealand (Northern South Island / Christchurch)", "lat": -43.53, "lon": 172.63},
+                {"pfx": "ZL4", "n": "New Zealand (Southern South Island / Dunedin)", "lat": -45.87, "lon": 170.50},
+                {"pfx": "ZL7", "n": "Chatham Islands", "lat": -43.95, "lon": -176.55},
+                {"pfx": "ZL8", "n": "Kermadec Islands", "lat": -29.27, "lon": -177.90},
+                {"pfx": "ZL9", "n": "Sub-Antarctic Islands (Campbell / Auckland Is.)", "lat": -52.55, "lon": 169.15}
+            ],
+            "UA": [
+                {"pfx": "UA1", "n": "Russia (St Petersburg)", "lat": 59.93, "lon": 30.33},
+                {"pfx": "UA3", "n": "Russia (Moscow)", "lat": 55.75, "lon": 37.61},
+                {"pfx": "UA9", "n": "Russia (Urals)", "lat": 56.83, "lon": 60.60},
+                {"pfx": "UA0A", "n": "Russia (C Sibir)", "lat": 56.01, "lon": 92.86},
+                {"pfx": "UA0C", "n": "Habarovski kraj (Habarovsk)", "lat": 48.48, "lon": 135.07},
+                {"pfx": "UA0F", "n": "Židovska autonomna oblast (Birobidžan)", "lat": 48.78, "lon": 132.93},
+                {"pfx": "UA0I", "n": "Magadanska oblast (Magadan)", "lat": 59.57, "lon": 150.80},
+                {"pfx": "UA0J", "n": "Amurska oblast (Blagovješčensk)", "lat": 50.27, "lon": 127.53},
+                {"pfx": "UA0K", "n": "Čukotski autonomni okrug (Anadir)", "lat": 64.73, "lon": 177.50},
+                {"pfx": "UA0L", "n": "Primorski kraj (Vladivostok)", "lat": 43.12, "lon": 131.88},
+                {"pfx": "UA0Q", "n": "Republika Saha / Jakutija (Jakutsk)", "lat": 62.03, "lon": 129.73},
+                {"pfx": "UA0X", "n": "Korjakski autonomni okrug (Palana)", "lat": 59.08, "lon": 159.95},
+                {"pfx": "UA0Z", "n": "Kamčatski kraj (Petropavlovsk)", "lat": 53.02, "lon": 158.65}
+            ],
+            "AN": [
+                {"pfx": "RI1ANF", "n": "Bellingshausen (RI1ANF)", "lat": -62.19, "lon": -58.96},
+                {"pfx": "RI1ANE", "n": "Progress (RI1ANE)", "lat": -69.40, "lon": 76.37},
+                {"pfx": "R1ANR",  "n": "Novolazarevskaya (R1ANR)", "lat": -70.98, "lon": 10.04},
+                {"pfx": "LU1ZV",  "n": "Esperanza (LU1ZV)", "lat": -63.40, "lon": -57.00},
+                {"pfx": "ZS1ANT", "n": "SANAE IV (ZS1ANT)", "lat": -71.67, "lon": -2.83},
+                {"pfx": "DP0GVN", "n": "Neumayer III (DP0GVN)", "lat": -70.67, "lon": -8.27},
+                {"pfx": "VK0DS",  "n": "Davis Station (VK0DS)", "lat": -68.57, "lon": 78.00},
+                {"pfx": "3Y0K",   "n": "Bouvet Is. (3Y0K)", "lat": -54.44, "lon": 3.38}
+            ]
+        };
+
+        function parseDxccFileContent(text) {
+            const lines = text.split('\n');
+            let entities = [];
+            
+            for (let line of lines) {
+                if (!line.trim() || line.startsWith(' ') || line.startsWith('\t') || line.startsWith('#')) continue;
+                let cleanLine = line.replace(/\s*:\s*/g, ':');
+                let parts = cleanLine.split(':');
+
+                if (parts.length >= 8) {
+                    let name = parts[0].trim().replace(/:$/, '');
+                    let cont = parts[3].trim();
+                    let lat = parseFloat(parts[4]);
+                    let lon = parseFloat(parts[5]) * -1;
+                    
+                    let pfx = "";
+                    for (let j = 6; j < parts.length; j++) {
+                        let candidate = parts[j].trim().replace('*', '');
+                        if (candidate && isNaN(candidate)) {
+                            pfx = candidate;
+                            break;
+                        }
+                    }
+                    if (!pfx && parts.length > 7) {
+                        pfx = parts[7].replace('*', '').trim();
+                    }
+
+                    if (["VK", "JA", "K", "W", "VE", "UA", "VO", "VY"].includes(pfx)) continue;
+
+                    if (name && ["AF", "AN", "AS", "EU", "NA", "OC", "SA"].includes(cont) && !isNaN(lat) && !isNaN(lon)) {
+                        entities.push({ name: name, cont: cont, lat: lat, lon: lon, prefix: pfx || name.slice(0, 3).toUpperCase() });
+                    }
+                }
+            }
+
+            for (let catKey in PRECISION_DATA) {
+                PRECISION_DATA[catKey].forEach(reg => {
+                    let c = "OC";
+                    if (reg['n'].includes("Japan") || reg['n'].includes("Russia") || reg['n'].includes("Eureka")) c = "AS";
+                    if (reg['n'].includes("USA") || reg['n'].includes("Canada") || reg['n'].includes("Whitehorse") || reg['n'].includes("Rankin") || reg['n'].includes("Labrador")) c = "NA";
+                    if (reg['n'].includes("Australia (")) c = "OC";
+                    if (reg['n'].includes("Antarctica") || reg['n'].includes("Bellingshausen") || reg['n'].includes("Progress") || reg['n'].includes("Novolazarevskaya") || reg['n'].includes("Esperanza") || reg['n'].includes("SANAE") || reg['n'].includes("Neumayer") || reg['n'].includes("Davis") || reg['n'].includes("Bouvet")) c = "AN";
+                    
+                    entities.push({ name: reg['n'], cont: c, lat: reg['lat'], lon: reg['lon'], prefix: reg['pfx'] });
+                });
+            }
+
+            if (entities.length > 0) {
+                dxEntities = entities;
+                alert(`Uspješno učitano ${dxEntities.length} DXCC entiteta!`);
+                refreshData();
+            } else {
+                alert("Greška pri parsiranju datoteke.");
+            }
+        }
+
+        function calculateQTF(lat1, lon1, lat2, lon2) {
+            const toRad = deg => deg * Math.PI / 180;
+            const toDeg = rad => rad * 180 / Math.PI;
+
+            lat1 = toRad(lat1); lon1 = toRad(lon1);
+            lat2 = toRad(lat2); lon2 = toRad(lon2);
+
+            const dLon = lon2 - lon1;
+            const y = Math.sin(dLon) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+            
+            let sp = (toDeg(Math.atan2(y, x)) + 360) % 360;
+            let lp = (sp + 180) % 360;
+            return [Math.round(sp), Math.round(lp)];
+        }
+
+        function getSunTimes(lat, lon, date) {
+            const toRad = deg => deg * Math.PI / 180;
+            const toDeg = rad => rad * 180 / Math.PI;
+
+            const year = date.getUTCFullYear();
+            const month = date.getUTCMonth();
+            const day = date.getUTCDate();
+            
+            const startOfYear = new Date(Date.UTC(year, 0, 1));
+            const currentDate = new Date(Date.UTC(year, month, day));
+            const N = Math.floor((currentDate - startOfYear) / 86400000) + 1;
+
+            const b = (2 * Math.PI * (N - 81)) / 365;
+            const declination = 23.44 * Math.sin(b);
+
+            const b_eot = (2 * Math.PI * (N - 81)) / 365;
+            const eot = 9.87 * Math.sin(2 * b_eot) - 7.53 * Math.cos(b_eot) - 1.5 * Math.sin(b_eot);
+
+            const zenith = 90.833; 
+
+            const latRad = toRad(lat);
+            const decRad = toRad(declination);
+            const zenithRad = toRad(zenith);
+
+            let cosHourAngle = (Math.cos(zenithRad) - Math.sin(latRad) * Math.sin(decRad)) / (Math.cos(latRad) * Math.cos(decRad));
+            if (cosHourAngle > 1) cosHourAngle = 1;
+            if (cosHourAngle < -1) cosHourAngle = -1;
+
+            const hourAngle = toDeg(Math.acos(cosHourAngle));
+            const solarNoonUTC = 720 - (4 * lon) - eot; 
+
+            const riseTimeMin = solarNoonUTC - (hourAngle * 4);
+            const setTimeMin = solarNoonUTC + (hourAngle * 4);
+
+            const minutesToUTCDate = (min) => {
+                let d = new Date(Date.UTC(year, month, day));
+                let totalMin = ((min % 1440) + 1440) % 1440;
+                let hours = Math.floor(totalMin / 60);
+                let minutes = Math.floor(totalMin % 60);
+                d.setUTCHours(hours, minutes, 0, 0);
+                return d;
+            };
+
+            return {
+                sunrise: minutesToUTCDate(riseTimeMin),
+                sunset: minutesToUTCDate(setTimeMin)
+            };
+        }
+
+        function playBeep() {
+            if (!document.getElementById('soundToggle').checked) return;
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.value = 1200;
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.4);
+            } catch(e) {}
+        }
+
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('utcClock').innerText = now.toISOString().slice(11, 19) + " UTC";
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        function refreshData() {
+            const now = new Date();
+            const homeName = document.getElementById('homeLocSelect').value;
+            const homeCfg = HOME_STATIONS.find(s => s.name === homeName);
+            const tol = parseInt(document.getElementById('tolSlider').value);
+            const onlyTolerance = document.getElementById('onlyToleranceToggle').checked;
+            
+            const isMorning = now.getUTCHours() < 12;
+            const homeSun = getSunTimes(homeCfg.lat, homeCfg.lon, now);
+            const myEvent = isMorning ? homeSun.sunrise : homeSun.sunset;
+
+            document.getElementById('leftTitle').querySelector('span').innerText = isMorning ? " JUTRO (SADA) " : " VEČER (SADA) ";
+
+            let evData = [];
+            let moData = [];
+            currentActiveEntries = [];
+
+            dxEntities.forEach(dx => {
+                if (!contVars[dx.cont]) return;
+
+                const [sp, lp] = calculateQTF(homeCfg.lat, homeCfg.lon, dx.lat, dx.lon);
+                const qtfText = `${sp}°/${lp}°`;
+                
+                try {
+                    const dxSun = getSunTimes(dx.lat, dx.lon, now);
+                    const dxTarget = isMorning ? dxSun.sunset : dxSun.sunrise;
+
+                    const resEv = processEntry(dx, myEvent, dxTarget, now, tol, qtfText);
+
+                    if (onlyTolerance) {
+                        let diffMinutes = Math.abs((now - dxTarget) / 60000);
+                        if (diffMinutes > tol && resEv.p > 0) {
+                            return; 
+                        }
+                    }
+
+                    if (resEv.p <= 0) {
+                        currentActiveEntries.push(resEv);
+                    }
+
+                    evData.push(resEv);
+                    if (resEv.stat === "!!! PEAK !!!") {
+                        logPeak(dx.prefix, dx.name, qtfText, now);
+                    }
+
+                    let snapTime = new Date(now);
+                    snapTime.setUTCHours(4, 45, 0, 0);
+                    const resMo = processEntry(dx, homeSun.sunrise, dxSun.sunset, snapTime, tol, qtfText);
+                    moData.push(resMo);
+
+                } catch(err) {}
+            });
+
+            updateTable('leftTableBody', evData, 'leftCount', true);
+            updateTable('rightTableBody', moData, 'rightCount', false);
+
+            // Automatsko ažuriranje mape ako je prozor otvoren
+            if (map && !document.getElementById('mapModal').classList.contains('hidden')) {
+                updateMapLayers();
+            }
+        }
+
+        function processEntry(dx, hTime, dTime, refTime, tol, qtf) {
+            let diffSec = (dTime - refTime) / 1000;
+            if (diffSec < -43200) dTime.setUTCDate(dTime.getUTCDate() + 1);
+            if (diffSec > 43200) dTime.setUTCDate(dTime.getUTCDate() - 1);
+
+            let winS = new Date(dTime.getTime() - tol * 60000);
+            let winE = new Date(dTime.getTime() + tol * 60000);
+            let absDiff = Math.abs((refTime - dTime) / 1000);
+
+            let p, stat, tag;
+            if (absDiff <= 60) { p = -1; stat = "!!! PEAK !!!"; tag = 'peak'; }
+            else if (refTime >= winS && refTime <= winE) { p = 0; stat = "!!! ACTIVE !!!"; tag = 'excellent'; }
+            else if (refTime < winS) { p = 1; stat = `U ${Math.round((winS - refTime)/60000)}m`; tag = 'passed'; }
+            else { p = 2; stat = "Prošlo"; tag = 'passed'; }
+
+            const fmtTime = d => d.toISOString().slice(11, 16);
+
+            return {
+                p, pfx: dx.prefix, name: dx.name, lat: dx.lat, lon: dx.lon,
+                ht: fmtTime(hTime), dt: fmtTime(dTime),
+                win: `${fmtTime(winS)}-${fmtTime(winE)}`,
+                qtf, stat, tag, cont: dx.cont, absDiff
+            };
+        }
+
+        function updateTable(tbodyId, data, countId, checkSound) {
+            const tbody = document.getElementById(tbodyId);
+            tbody.innerHTML = '';
+            
+            data.sort((a, b) => {
+                if (a.p <= 0 && b.p > 0) return -1;
+                if (b.p <= 0 && a.p > 0) return 1;
+                return a.absDiff - b.absDiff || a.pfx.localeCompare(b.pfx);
+            });
+
+            document.getElementById(countId).innerText = `${data.length} entiteta`;
+
+            data.forEach(item => {
+                if (item.p <= 0 && checkSound && !alertedPrefixes.has(item.pfx)) {
+                    playBeep();
+                    alertedPrefixes.add(item.pfx);
+                }
+
+                let rowBg = "";
+                let textCol = "text-gray-300";
+                if (item.tag === 'peak') { rowBg = "bg-red-950/60"; textCol = "text-red-300 font-bold"; }
+                else if (item.tag === 'excellent') { rowBg = "bg-green-950/40"; textCol = "text-green-300 font-bold"; }
+
+                const tr = document.createElement('tr');
+                tr.className = `${rowBg} hover:bg-zinc-800/50 transition border-b border-gray-900`;
+                tr.innerHTML = `
+                    <td class="p-2 text-center font-bold text-yellow-400">${item.pfx}</td>
+                    <td class="p-2 ${textCol}">${item.name}</td>
+                    <td class="p-2 text-center text-gray-400">${item.ht}</td>
+                    <td class="p-2 text-center text-gray-400">${item.dt}</td>
+                    <td class="p-2 text-center text-gray-400">${item.win}</td>
+                    <td class="p-2 text-center text-cyan-300">${item.qtf}</td>
+                    <td class="p-2 text-center font-bold ${item.p <= 0 ? 'text-green-400 animate-pulse' : 'text-gray-500'}">${item.stat}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function logPeak(pfx, name, qtf, now) {
+            if (!lastLogged[pfx] || (now - lastLogged[pfx]) > 3600000) {
+                const timeStr = now.toISOString().replace('T', ' ').slice(0, 19);
+                peakLogs.push(`[${timeStr}] PEAK: ${pfx.padEnd(6)} | ${name.padEnd(30)} | QTF: ${qtf}`);
+                lastLogged[pfx] = now;
+            }
+        }
+
+        let alertedPrefixes = new Set();
+        let lastLogged = {};
+        let peakLogs = [];
+
+        // LEAFLET MAPA & OSM FRANCE PODLOGA SA DINAMIČKIM SLOJEVIMA I GRIDOM
+        let map = null;
+        let mapLayerGroup = null;
+        let gridLayer = null;
+        let terminatorLayer = null;
+
+        function initMap() {
+            const homeName = document.getElementById('homeLocSelect').value;
+            const homeCfg = HOME_STATIONS.find(s => s.name === homeName);
+
+            if (!map) {
+                map = L.map('mapContainer', {
+                    center: [20, 0],
+                    zoom: 2,
+                    worldCopyJump: true
+                });
+
+                // OSM France podloga
+                L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+                    maxZoom: 19,
+                    attribution: '&copy; OpenStreetMap contributors, OSM France'
+                }).addTo(map);
+
+                // Inicijalizacija slojeva nakon što je mapa stvorena
+                mapLayerGroup = L.layerGroup().addTo(map);
+                gridLayer = L.layerGroup().addTo(map);
+
+                // Slušatelj događaja za automatsko osvježavanje grida pri pomicanju i zumiranju mape
+                map.on('moveend zoomend', isrtajMaidenheadGrid);
+            } else {
+                map.setView([20, 0], 2);
+            }
+
+            updateMapLayers();
+            isrtajMaidenheadGrid();
+        }
+
+        // --- OPTIMIZIRANI MAIDENHEAD GRID GENERATOR ---
+        function isrtajMaidenheadGrid() {
+            if (!map || !gridLayer) return;
+            gridLayer.clearLayers();
+            let bounds = map.getBounds();
+            let zoom = map.getZoom();
+            let dLat, dLon, precision;
+
+            if (zoom < 6) {
+                dLat = 10; dLon = 20; precision = 2;
+            } else if (zoom >= 6 && zoom < 10) {
+                dLat = 1; dLon = 2; precision = 4;
+            } else {
+                dLat = 1/24; dLon = 2/24; precision = 6;
+            }
+
+            let minLat = Math.max(-90, Math.floor(bounds.getSouth() / dLat) * dLat);
+            let maxLat = Math.min(90, Math.ceil(bounds.getNorth() / dLat) * dLat);
+            let minLon = Math.max(-180, Math.floor(bounds.getWest() / dLon) * dLon);
+            let maxLon = Math.min(180, Math.ceil(bounds.getEast() / dLon) * dLon);
+
+            for (let lat = minLat; lat < maxLat; lat += dLat) {
+                for (let lon = minLon; lon < maxLon; lon += dLon) {
+                    let squareBounds = [[lat, lon], [lat + dLat, lon + dLon]];
+                    
+                    L.rectangle(squareBounds, {
+                        color: 'rgba(0, 162, 255, 0.3)',
+                        weight: precision === 2 ? 1.5 : 0.8,
+                        fill: false,
+                        interactive: false
+                    }).addTo(gridLayer);
+
+                    let centerLat = lat + dLat / 2;
+                    let centerLon = lon + dLon / 2;
+                    let gridName = latLonToLocator(centerLat, centerLon, precision);
+                    
+                    let labelIcon = L.divIcon({
+                        className: '',
+                        html: `<div class="grid-label">${gridName}</div>`,
+                        iconSize: [50, 14],
+                        iconAnchor: [25, 7]
+                    });
+                    L.marker([centerLat, centerLon], { icon: labelIcon, interactive: false }).addTo(gridLayer);
+                }
+            }
+        }
+
+        function latLonToLocator(lat, lon, precision) {
+            lon += 180;
+            lat += 90;
+            let fieldLon = Math.floor(lon / 20);
+            let fieldLat = Math.floor(lat / 10);
+            let res = String.fromCharCode(65 + fieldLon) + String.fromCharCode(65 + fieldLat);
+            if (precision >= 4) {
+                let squareLon = Math.floor((lon % 20) / 2);
+                let squareLat = Math.floor((lat % 10) / 1);
+                res += squareLon.toString() + squareLat.toString();
+            }
+            if (precision >= 6) {
+                let subsquareLon = Math.floor(((lon % 20) % 2) * 12);
+                let subsquareLat = Math.floor(((lat % 10) % 1) * 24);
+                res += String.fromCharCode(97 + subsquareLon) + String.fromCharCode(97 + subsquareLat);
+            }
+            return res;
+        }
+
+        function updateMapLayers() {
+            if (!map || !mapLayerGroup) return;
+            mapLayerGroup.clearLayers();
+
+            if (terminatorLayer) {
+                map.removeLayer(terminatorLayer);
+            }
+            terminatorLayer = L.terminator();
+            terminatorLayer.addTo(map);
+
+            const homeName = document.getElementById('homeLocSelect').value;
+            const homeCfg = HOME_STATIONS.find(s => s.name === homeName);
+
+            L.circleMarker([homeCfg.lat, homeCfg.lon], {
+                radius: 8,
+                color: '#22c55e',
+                fillColor: '#22c55e',
+                fillOpacity: 0.9
+            }).addTo(mapLayerGroup).bindPopup(`<b>Home: ${homeCfg.name}</b><br>Lat: ${homeCfg.lat}, Lon: ${homeCfg.lon}`);
+
+            currentActiveEntries.forEach(dx => {
+                const homeLatLon = [homeCfg.lat, homeCfg.lon];
+                const finalTarget = [dx.lat, dx.lon];
+
+                const geodesicLine = new L.Geodesic([homeLatLon, finalTarget], {
+                    color: dx.tag === 'peak' ? '#ef4444' : '#38bdf8',
+                    weight: 2,
+                    opacity: 0.8,
+                    steps: 50
+                });
+                mapLayerGroup.addLayer(geodesicLine);
+                geodesicLine.bindPopup(`<b>${dx.pfx} - ${dx.name}</b><br>QTF: ${dx.qtf}<br>Status: ${dx.stat}`);
+
+                const marker = L.circleMarker(finalTarget, {
+                    radius: dx.tag === 'peak' ? 7 : 5,
+                    color: dx.tag === 'peak' ? '#ef4444' : '#eab308',
+                    fillColor: dx.tag === 'peak' ? '#ef4444' : '#eab308',
+                    fillOpacity: 0.9
+                });
+                mapLayerGroup.addLayer(marker);
+                marker.bindPopup(`<b>${dx.pfx} (${dx.name})</b><br>QTF: ${dx.qtf}<br>Status: ${dx.stat}`);
+            });
+        }
+
+        // Otvaranje i zatvaranje modala za mapu
+        document.getElementById('openMapBtn').addEventListener('click', () => {
+            document.getElementById('mapModal').classList.remove('hidden');
+            document.getElementById('mapModal').classList.add('flex');
+            setTimeout(() => {
+                initMap();
+                map.invalidateSize();
+            }, 100);
+        });
+
+        document.getElementById('closeMapBtn').addEventListener('click', () => {
+            document.getElementById('mapModal').classList.remove('flex');
+            document.getElementById('mapModal').classList.add('hidden');
+        });
+
+        document.getElementById('refreshMapBtn').addEventListener('click', () => {
+            if (map) {
+                updateMapLayers();
+                isrtajMaidenheadGrid();
+            }
+        });
+
+        // Kontrole za Peak Log modal i gumbe
+        document.getElementById('openLogBtn').addEventListener('click', () => {
+            const content = peakLogs.length > 0 ? peakLogs.join('\n') : "Nema zapisa...";
+            document.getElementById('logContent').innerText = content;
+            document.getElementById('logModal').classList.remove('hidden');
+            document.getElementById('logModal').classList.add('flex');
+        });
+
+        document.getElementById('closeModalBtn').addEventListener('click', () => {
+            document.getElementById('logModal').classList.remove('flex');
+            document.getElementById('logModal').classList.add('hidden');
+        });
+
+        document.getElementById('clearLogBtn').addEventListener('click', () => {
+            peakLogs = [];
+            document.getElementById('logContent').innerText = "Nema zapisa...";
+        });
+        
+        document.getElementById('downloadLogBtn').addEventListener('click', () => {
+            if (peakLogs.length === 0) {
+            alert("Nema zapisa za preuzimanje.");
+            return;
+        }
+            const blob = new Blob([peakLogs.join('\n')], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'dx_peak_log.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+      });
+        document.getElementById('resetAlarmBtn').addEventListener('click', () => {
+            alertedPrefixes.clear();
+            alert("Alarmi su resetirani!");
+        });
+
+        // Inicijalno pokretanje izračuna i popunjavanja tablica
+        refreshData();
+        setInterval(refreshData, 15000);
+    </script>
+</body>
+</html>
